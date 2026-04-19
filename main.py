@@ -4,6 +4,7 @@ import numpy as np
 import pyautogui
 import pickle
 import threading
+from collections import Counter, deque
 from tkinter import *
 from tkinter import ttk
 
@@ -23,38 +24,76 @@ game_controls = {
 }
 
 running = False
+active_key = None
+
+prediction_window = deque(maxlen=7)
+stable_prediction_min_count = 4
+current_action = None
+no_hand_frames = 0
+no_hand_release_threshold = 6
+
+
+def release_active_key():
+    global active_key
+    if active_key is not None:
+        pyautogui.keyUp(active_key)
+        active_key = None
 
 def release_keys():
+    global active_key
     for key in ["up", "down", "left", "right", "w", "a", "s", "d"]:
         pyautogui.keyUp(key)
+    active_key = None
+
+
+def get_smoothed_action(prediction):
+    prediction_window.append(prediction)
+    action, count = Counter(prediction_window).most_common(1)[0]
+
+    if count >= stable_prediction_min_count:
+        return action
+
+    return None
+
+
+def map_action_to_key_and_status(action, controls):
+    if action == "open":
+        return controls["acc"], "Accelerating"
+
+    if action == "fist":
+        return controls["brake"], "Braking"
+
+    if action == "one" and "left" in controls:
+        return controls["left"], "Left"
+
+    if action == "two" and "right" in controls:
+        return controls["right"], "Right"
+
+    return None, "Idle"
 
 def control_game(action):
-    release_keys()
+    global active_key, current_action
     game = selected_game.get()
     controls = game_controls[game]
 
-    if action == "open":
-        pyautogui.keyDown(controls["acc"])
-        status_label.config(text="Accelerating")
+    next_key, next_status = map_action_to_key_and_status(action, controls)
 
-    elif action == "fist":
-        pyautogui.keyDown(controls["brake"])
-        status_label.config(text="Braking")
+    if next_key != active_key:
+        release_active_key()
+        if next_key is not None:
+            pyautogui.keyDown(next_key)
+            active_key = next_key
 
-    elif action == "one" and "left" in controls:
-        pyautogui.keyDown(controls["left"])
-        status_label.config(text="Left")
-
-    elif action == "two" and "right" in controls:
-        pyautogui.keyDown(controls["right"])
-        status_label.config(text="Right")
-
-    else:
-        status_label.config(text="Idle")
+    if action != current_action:
+        status_label.config(text=next_status)
+        current_action = action
 
 def start_camera():
-    global running
+    global running, no_hand_frames, current_action
     running = True
+    no_hand_frames = 0
+    current_action = None
+    prediction_window.clear()
     threading.Thread(target=run_camera).start()
 
 def stop_camera():
@@ -63,6 +102,7 @@ def stop_camera():
     release_keys()
 
 def run_camera():
+    global no_hand_frames, current_action
     cap = cv2.VideoCapture(0)
 
     while running:
@@ -83,17 +123,26 @@ def run_camera():
                     landmark_list.append(lm.y)
 
                 prediction = model.predict([landmark_list])[0]
-                control_game(prediction)
+                smoothed_action = get_smoothed_action(prediction)
+                no_hand_frames = 0
+
+                if smoothed_action is not None:
+                    control_game(smoothed_action)
 
         else:
-            release_keys()
-            status_label.config(text="No Hand")
+            no_hand_frames += 1
+            if no_hand_frames >= no_hand_release_threshold:
+                release_active_key()
+                if current_action != "no_hand":
+                    status_label.config(text="No Hand")
+                    current_action = "no_hand"
 
         cv2.imshow("Camera", frame)
 
         if cv2.waitKey(1) == 27:
             break
 
+    release_keys()
     cap.release()
     cv2.destroyAllWindows()
 
