@@ -2,7 +2,7 @@ import cv2
 import os
 import time
 
-label = "fist"  # change: open, fist, one, two
+label = "one"  # change: open, fist, one, two
 target_images = 100
 capture_interval_sec = 3
 break_every_images = 25
