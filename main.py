@@ -4,6 +4,7 @@ import numpy as np
 import pyautogui
 import pickle
 import threading
+import time
 from collections import Counter, deque
 from tkinter import *
 from tkinter import ttk
@@ -25,24 +26,61 @@ game_controls = {
 
 running = False
 active_key = None
+current_game = "Hill Climb"
 
 prediction_window = deque(maxlen=7)
 stable_prediction_min_count = 4
 current_action = None
 no_hand_frames = 0
 no_hand_release_threshold = 6
+last_action_change_time = 0.0
+car_racing_switch_delay_sec = 0.35
+current_status = "Idle"
+last_rendered_status = None
+
+
+def handle_failsafe():
+    global running, current_status, current_action
+    running = False
+    current_action = None
+    current_status = "Mouse at screen corner. Move mouse and press Start again."
+
+
+def safe_press(key):
+    try:
+        pyautogui.press(key)
+        return True
+    except pyautogui.FailSafeException:
+        handle_failsafe()
+        return False
+
+
+def safe_key_down(key):
+    try:
+        pyautogui.keyDown(key)
+        return True
+    except pyautogui.FailSafeException:
+        handle_failsafe()
+        return False
+
+
+def safe_key_up(key):
+    try:
+        pyautogui.keyUp(key)
+    except pyautogui.FailSafeException:
+        pass
 
 
 def release_active_key():
     global active_key
     if active_key is not None:
-        pyautogui.keyUp(active_key)
+        safe_key_up(active_key)
         active_key = None
 
 def release_keys():
     global active_key
     for key in ["up", "down", "left", "right", "w", "a", "s", "d"]:
-        pyautogui.keyUp(key)
+        safe_key_up(key)
     active_key = None
 
 
@@ -72,37 +110,106 @@ def map_action_to_key_and_status(action, controls):
     return None, "Idle"
 
 def control_game(action):
-    global active_key, current_action
-    game = selected_game.get()
+    global active_key, current_action, last_action_change_time, current_status
+    game = current_game
     controls = game_controls[game]
 
+    if game == "Subway Surfers":
+        # Trigger only once per gesture change for lane-switch/jump/slide.
+        if action == current_action:
+            return
+
+        release_active_key()
+
+        if action == "open":
+            if not safe_press(controls["acc"]):
+                return
+            current_status = "Jump"
+            current_action = action
+            return
+
+        if action == "fist":
+            if not safe_press(controls["brake"]):
+                return
+            current_status = "Slide"
+            current_action = action
+            return
+
+        if action == "one" and "left" in controls:
+            if not safe_press(controls["left"]):
+                return
+            current_status = "Left"
+            current_action = action
+            return
+
+        if action == "two" and "right" in controls:
+            if not safe_press(controls["right"]):
+                return
+            current_status = "Right"
+            current_action = action
+            return
+
+        current_status = "Idle"
+        current_action = action
+        return
+
     next_key, next_status = map_action_to_key_and_status(action, controls)
+
+    if game == "Car Racing" and action != current_action:
+        now = time.monotonic()
+        if now - last_action_change_time < car_racing_switch_delay_sec:
+            return
+        last_action_change_time = now
 
     if next_key != active_key:
         release_active_key()
         if next_key is not None:
-            pyautogui.keyDown(next_key)
+            if not safe_key_down(next_key):
+                return
             active_key = next_key
 
     if action != current_action:
-        status_label.config(text=next_status)
+        current_status = next_status
         current_action = action
 
 def start_camera():
-    global running, no_hand_frames, current_action
+    global running, no_hand_frames, current_action, last_action_change_time, current_status
+    if running:
+        current_status = "Camera already running"
+        return
+
     running = True
     no_hand_frames = 0
     current_action = None
+    last_action_change_time = 0.0
+    current_status = "Starting camera..."
     prediction_window.clear()
-    threading.Thread(target=run_camera).start()
+    threading.Thread(target=run_camera, daemon=True).start()
 
 def stop_camera():
-    global running
+    global running, current_status
     running = False
     release_keys()
+    current_status = "Idle"
+
+
+def on_game_change(event=None):
+    global current_game, current_action, current_status
+    current_game = selected_game.get()
+    current_action = None
+    release_keys()
+    current_status = "Idle"
+
+
+def refresh_status_label():
+    global last_rendered_status
+    if current_status != last_rendered_status:
+        status_label.config(text=current_status)
+        last_rendered_status = current_status
+    root.after(100, refresh_status_label)
 
 def run_camera():
-    global no_hand_frames, current_action
+    global no_hand_frames, current_action, current_status
     cap = cv2.VideoCapture(0)
 
     while running:
@@ -134,7 +241,7 @@ def run_camera():
             if no_hand_frames >= no_hand_release_threshold:
                 release_active_key()
                 if current_action != "no_hand":
-                    status_label.config(text="No Hand")
+                    current_status = "No Hand"
                     current_action = "no_hand"
 
         cv2.imshow("Camera", frame)
@@ -158,11 +265,15 @@ selected_game.set(games[0])
 
 dropdown = ttk.Combobox(root, textvariable=selected_game, values=games)
 dropdown.pack(pady=20)
+dropdown.bind("<<ComboboxSelected>>", on_game_change)
 
 Button(root, text="Start", command=start_camera, bg="green", fg="white").pack(pady=10)
 Button(root, text="Stop", command=stop_camera, bg="red", fg="white").pack(pady=10)
 
 status_label = Label(root, text="Idle", bg="#1e1e1e", fg="white", font=("Arial", 14))
 status_label.pack(pady=20)
+
+on_game_change()
+refresh_status_label()
 
 root.mainloop() 
