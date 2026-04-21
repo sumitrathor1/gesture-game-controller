@@ -2,8 +2,8 @@ import cv2
 import os
 import time
 
-label = "two"  # change: open, fist, one, two
-target_images = 100
+label = "fist"  # change: open, fist, one, two
+capture_additional_images = 50
 capture_interval_sec = 3
 break_every_images = 25
 break_duration_sec = 30
@@ -28,7 +28,7 @@ cap = cv2.VideoCapture(0)
 last_capture_time = time.time() - capture_interval_sec
 
 print(f"Auto capture started for label '{label}'")
-print(f"Target images: {target_images}, Interval: {capture_interval_sec} seconds")
+print(f"Additional images to capture: {capture_additional_images}, Interval: {capture_interval_sec} seconds")
 print(f"Starting index: {count}")
 print(f"Break: every {break_every_images} images, pause {break_duration_sec} seconds")
 print("Press ESC to stop early")
@@ -50,12 +50,12 @@ while True:
         session_count += 1
         last_capture_time = current_time
 
-        if session_count % break_every_images == 0 and count < target_images:
+        if session_count % break_every_images == 0 and session_count < capture_additional_images:
             print(f"Break time: waiting {break_duration_sec} seconds...")
             time.sleep(break_duration_sec)
             print("Break over. Resuming capture.")
 
-        if count >= target_images:
+        if session_count >= capture_additional_images:
             print("Target reached. Stopping capture.")
             break
 
