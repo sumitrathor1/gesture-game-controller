@@ -3,14 +3,24 @@ import mediapipe as mp
 import numpy as np
 import pyautogui
 import pickle
+import sklearn
 import threading
 import time
+import os
+import sys
 from collections import Counter, deque
 from tkinter import *
 from tkinter import ttk
 
+def resource_path(relative_path):
+    """Return absolute path for local/dev run and PyInstaller onefile mode."""
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
+
+
 # Load model
-model = pickle.load(open("model/model.pkl", "rb"))
+with open(resource_path("model/model.pkl"), "rb") as model_file:
+    model = pickle.load(model_file)
 
 # MediaPipe setup
 mp_hands = mp.solutions.hands

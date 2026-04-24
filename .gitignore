@@ -1,0 +1,19 @@
+# Python cache and environments
+__pycache__/
+*.py[cod]
+.venv/
+.venv-1/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.pkg
+*.pyz
+*.toc
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
